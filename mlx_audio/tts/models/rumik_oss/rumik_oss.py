@@ -231,13 +231,27 @@ class Model(Cohere2Model):
                 raise ValueError(
                     "ModelConfig.model_path is unset; cannot locate the tokenizer."
                 )
-            from transformers import AutoTokenizer
+            import json
+            from pathlib import Path
 
-            # The repo's auto_map points at custom *model* code; the tokenizer
-            # itself is a stock CohereTokenizer, so skip the remote-code prompt.
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                self.config.model_path, trust_remote_code=False
-            )
+            import transformers
+
+            # Load the tokenizer class named in tokenizer_config.json directly.
+            # AutoTokenizer would first probe config.json, not recognise
+            # ``model_type: rumik_oss`` and log a misleading warning; the class
+            # itself is a stock CohereTokenizer and produces identical ids.
+            path = Path(self.config.model_path)
+            cls_name = None
+            try:
+                cls_name = json.loads((path / "tokenizer_config.json").read_text()).get(
+                    "tokenizer_class"
+                )
+            except (OSError, ValueError):
+                pass
+            cls = getattr(transformers, cls_name, None) if cls_name else None
+            if cls is None:
+                cls = transformers.AutoTokenizer
+            self._tokenizer = cls.from_pretrained(path, trust_remote_code=False)
         return self._tokenizer
 
     @property
